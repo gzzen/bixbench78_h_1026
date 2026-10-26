@@ -326,6 +326,27 @@ All levels on one B run share `analysis/<tag>_c_parent.json`, so they repair the
 questions. See [conditions/c/README.md](conditions/c/README.md) for the hierarchy and
 per-question pipeline.
 
+## Condition H: multihead rescue over a frozen, scored B or C run
+
+H runs after a B run (and optionally a C level over it) is frozen and privately scored.
+It keeps every parent Yes and runs several repair heads in their own OpenCode attempt
+containers on each capsule that still holds a No. `h_v61` (five head families, consensus
+selection) and `h_v7` (localized heads plus rescue chain, ranked Yes/No submissions) are
+ports of ngch D-v6.1 and D-v7. Each in-run Yes/No is produced by the sibling grader on a
+frozen snapshot under `runs/<tag>/feedback/`, so H needs `../bixbench78_grader` and, for
+`llm_verifier` questions, its DeepSeek key (`FEEDBACK_JUDGE=surrogate` uses the offline rule).
+
+```bash
+scripts/run_c.sh "$tag"                       # parent: <tag>_c_minimal (see above)
+scripts/run_h.sh "$tag"                       # h_v61 over <tag>_c_minimal + export + grading
+scripts/run_h.sh "$tag" all c_minimal         # h_v61 and h_v7
+scripts/run_h.sh "$tag" h_v7 none             # h_v7 directly over B
+# Rerunning it skips completed variants and continues interrupted ones (finished tasks are kept);
+# FRESH=1 redoes the selected variants; a 4th argument names an existing parent scoring.
+```
+
+See [conditions/h/README.md](conditions/h/README.md) for the heads, selection and outputs.
+
 ## Diagnose failed attempts
 
 Both runners create generation-output and report parent directories before agent
@@ -384,7 +405,8 @@ python -m unittest common.integrity.test_opencode_capture \
   conditions.c.c_minimal.test_parent conditions.c.c_minimal.test_rescue_main \
   conditions.c.c_minimal.test_repair_policy conditions.c.c_minimal.test_c_minimal \
   conditions.c.c_minimal.test_export conditions.c.c_minimal.test_pack_run_artifacts \
-  conditions.c.c_single.test_c_single conditions.c.c_blind.test_c_blind
+  conditions.c.c_single.test_c_single conditions.c.c_blind.test_c_blind \
+  conditions.h.core.test_core conditions.h.h_v61.test_h_v61 conditions.h.h_v7.test_h_v7
 
 # Optional real CLI against a local fake model, with zero paid calls:
 NATIVE_B_TEST_OPENCODE_BINARY=/absolute/path/to/opencode \
