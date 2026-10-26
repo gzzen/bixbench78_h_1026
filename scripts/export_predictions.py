@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Path: scripts/export_predictions.py
-# Purpose: Export one frozen Native, B or C generation into normalized answer-blind prediction JSONL.
+# Purpose: Export one frozen Native, B, C or H generation into normalized prediction JSONL.
 from __future__ import annotations
 
 import argparse
@@ -136,10 +136,61 @@ def c_rows(c_generation: dict[str, Any], source_run: str) -> tuple[list[dict[str
     return rows, extra
 
 
+def h_rows(h_generation: dict[str, Any], source_run: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The scored parent rows (B, or a C level over B); an H answer only where H replaced a target.
+
+    Locked parent questions are byte-identical to the parent export.  A replaced target
+    gets the selected head result with controller_accepted=true; every other target keeps
+    its parent row, so compliant scoring of this file equals parent correct + H rescues.
+    """
+    parent = h_generation["parent"]
+    parent_path = Path(parent["parent_generation"])
+    parent_path = parent_path if parent_path.is_absolute() else ROOT / parent_path
+    if sha256(parent_path) != parent["parent_generation_sha256"]:
+        raise RuntimeError("frozen H parent generation hash mismatch")
+    parent_generation = load_frozen(parent_path)
+    if parent["parent_kind"] == "c":
+        rows, parent_extra = c_rows(parent_generation, source_run)
+    else:
+        rows, parent_extra = export_rows(parent_generation, "b", source_run), {}
+    locked = set(parent["locked_question_ids"])
+    replaced = h_generation["h_replaced"]
+    if locked & set(replaced) or not set(replaced) <= set(parent["target_question_ids"]):
+        raise RuntimeError("H generation replaces a locked question or an unknown question")
+    for row in rows:
+        qid = row["question_id"]
+        row.update(condition="h", h_variant=h_generation.get("variant"), c_level=parent.get("c_level"),
+                   parent_locked=qid in locked, h_replaced=qid in replaced)
+        if qid not in replaced:
+            continue
+        item = h_generation["final_results"][qid]
+        candidates = item.get("candidates") if isinstance(item.get("candidates"), list) else []
+        status = item.get("status") if item.get("status") in {"resolved", "unresolved"} else "unresolved"
+        row.update(status=status, candidates=candidates, controller_accepted=True, controller_status="h_selected",
+                   question_local_failure=None, return_code=None, runtime_seconds=None,
+                   h_source=replaced[qid]["source"], h_rule=replaced[qid]["rule"])
+    protocol = h_generation.get("protocol", {})
+    summary = h_generation.get("generation_summary", {})
+    extra = {"parent_generation": str(parent_path), "parent_generation_sha256": parent["parent_generation_sha256"],
+             "parent_scoring_sha256": parent["parent_scoring_sha256"], "parent_kind": parent["parent_kind"],
+             "c_level": parent.get("c_level"), "h_variant": h_generation.get("variant"),
+             "experiment_revision": h_generation.get("experiment_revision"),
+             "locked_parent_questions": len(locked), "h_targets": len(parent["target_question_ids"]),
+             "h_replaced_answers": len(replaced),
+             "h_model": protocol.get("model"), "h_reasoning_effort": protocol.get("reasoning_effort"),
+             "feedback_assisted": True, "feedback_oracle_calls": summary.get("feedback_oracle_calls"),
+             "model": parent_extra.get("model", parent_generation.get("manifest", {}).get("model")),
+             "reasoning_effort": parent_extra.get("reasoning_effort",
+                                                  parent_generation.get("manifest", {}).get("reasoning_effort")),
+             "source_manifest_sha256": parent_extra.get("source_manifest_sha256",
+                                                        parent_generation["freeze"].get("manifest_sha256"))}
+    return rows, extra
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--generation", type=Path, required=True)
-    parser.add_argument("--condition", choices=("native", "b", "c"), required=True)
+    parser.add_argument("--condition", choices=("native", "b", "c", "h"), required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--provenance", type=Path, required=True)
     parser.add_argument("--source-run", required=True)
@@ -148,6 +199,8 @@ def main() -> None:
     generation = load_frozen(args.generation)
     if args.condition == "c":
         rows, extra = c_rows(generation, args.source_run)
+    elif args.condition == "h":
+        rows, extra = h_rows(generation, args.source_run)
     else:
         rows = export_rows(generation, args.condition, args.source_run)
         extra = {"source_manifest_sha256": generation["freeze"].get("manifest_sha256"),

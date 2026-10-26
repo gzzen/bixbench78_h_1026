@@ -1,0 +1,30 @@
+{
+  "condition": "h_v61",
+  "revision": "H-v6.1 balanced five-family multihead (port of ngch D-v6.1)",
+  "source": "ngch_78_frozen_release_20261021/solver/conditions/d/runner_v61_fresh.py",
+  "extends": "frozen_parent (B, or a C level over B)",
+  "parent_rerun": false,
+  "endpoint": "feedback-assisted",
+  "locked": "parent Yes (correct, accepted and resolved in the parent scoring) is immutable",
+  "targets": "every other question; all five heads run on each capsule holding a target",
+  "execution_heads": ["full", "baseline_polling", "data_forensics", "method_triangulation", "full_aggressive"],
+  "legacy_heads": {
+    "full": "fresh B capsule run -> conservative Yes/No repair",
+    "baseline_polling": "fresh A capsule run -> poll_1 (conservative) Yes/No repair",
+    "full_aggressive": "fresh B capsule run -> conservative -> aggressive Yes/No repair"
+  },
+  "reflection_heads": {
+    "data_forensics": "one Yes/No repair of the parent answer",
+    "method_triangulation": "one Yes/No repair of the parent answer"
+  },
+  "answer_contract_variants": ["raw", "contract_1dp", "contract_0dp"],
+  "selector_heads": ["contract_1dp__full", "contract_1dp__method_triangulation", "contract_1dp__full_aggressive"],
+  "coverage_heads": ["full", "baseline_polling", "data_forensics"],
+  "selection": "reference_free: normalized-answer consensus (>=2) over the selector heads, else their fixed priority; sequential_yes_no (D-v6.2): submit unique head answers in order until Yes",
+  "feedback_payload": "per-question yes/no only; parent scoring for the reflection heads, the sibling grader on each legacy head's frozen stage output otherwise",
+  "yes_lock": "every repair stage copies Yes results byte-for-byte",
+  "maximum_agent_calls_per_capsule": 11,
+  "retry": "repair stages never retry; fresh B heads keep B's single policy-interruption retry",
+  "agent": "opencode-v2 per-call Docker boundary",
+  "imports_allowed": ["common", "conditions.a", "conditions.b", "conditions.c.c_minimal", "conditions.h.core", "conditions.h.h_v61", "scripts.export_predictions"]
+}

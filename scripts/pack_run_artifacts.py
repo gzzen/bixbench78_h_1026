@@ -23,14 +23,22 @@ WORKSPACE_FILES = (
     "question_only.json", "feedback.json", "repair_packet.json", "primary_result.json",
     "primary_provenance.json", "primary_grounding.json", "primary_canonical.json", "imported_artifacts.json",
     "blind_contract.json", "phase_freeze.json", "repair_result.json", "final_result.json",
+    # H: repair-stage input/output and v7's per-capsule candidate registry.
+    "prior_result.json", "head_canonical.json", "error_localization.json", "protocol_spec.json",
+    "answer_contract.json", "head_disagreement.json", "specialist_routing.json", "candidate_registry.jsonl",
 )
 # Per-run-root records (C: protocol, prompt and code snapshot frozen before the first model call).
 RUN_ROOT_FILES = ("protocol.json", "prompt_snapshot.json")
-RUN_ROOT_DIRS = ("code_snapshot",)
+RUN_ROOT_DIRS = ("code_snapshot", "tasks")
 # C workspaces live under these stages, one directory per question, instead of NNNN/.
 C_STAGES = ("repair_questions/*/*", "blind_contracts/*/*", "frozen_parent_packets/*")
+# H workspaces: heads/<head>/<stage>/<slug>, fresh A/B heads under heads/<head>/initial/NNNN/<slug>,
+# and v7's controller-only capsules/<slug>.  feedback/ (in-run grader verdicts) is never packed.
+H_STAGES = ("heads/*/*/*__*", "heads/*/initial/[0-9][0-9][0-9][0-9]/*__*", "capsules/*__*")
 # Path components that mark C output (runs/<tag>_c_minimal, analysis/<tag>_c_parent.json, results/<tag>/c_blind.jsonl).
 C_OUTPUT = re.compile(r"(?:^|_)c_(?:minimal|single|blind|parent)(?:[._]|$)", re.I)
+# H output (runs/<tag>_h_v61, analysis/<tag>_h_parent.json, results/<tag>/c_minimal_h_v7.jsonl).
+H_OUTPUT = re.compile(r"(?:^|_)h_(?:v61|v7|parent)(?:[._]|$)", re.I)
 # Generated scripts, audits and outputs. data/, tmp/ and home/ (OpenCode config/state) are never packed.
 WORKSPACE_DIRS = ("analysis",)
 # Checkout-level directories holding per-experiment manifests, reports, predictions and logs.
@@ -55,7 +63,7 @@ def run_roots(root: Path, experiment: str) -> list[Path]:
 def workspaces(run_root: Path) -> list[Path]:
     stages = [run_root, *sorted(run_root.glob("resume_*"))]
     found = [path for stage in stages for path in sorted(stage.glob("[0-9][0-9][0-9][0-9]/*"))]
-    found += [path for pattern in C_STAGES for path in sorted(run_root.glob(pattern))]
+    found += [path for pattern in C_STAGES + H_STAGES for path in sorted(run_root.glob(pattern))]
     return [path for path in found if path.is_dir() and not path.is_symlink()]
 
 
@@ -79,8 +87,8 @@ def is_answer_derived(path: Path) -> bool:
 
 
 def is_feedback_assisted(relative: str) -> bool:
-    """C output. C is selected by B's private verdicts, so it is packed but labelled, never answer-blind."""
-    return any(C_OUTPUT.search(part) for part in relative.split("/"))
+    """C or H output. Both are selected by private Yes/No verdicts, so they are packed but labelled, never answer-blind."""
+    return any(C_OUTPUT.search(part) or H_OUTPUT.search(part) for part in relative.split("/"))
 
 
 def experiment_outputs(root: Path, experiment: str) -> list[Path]:
@@ -161,8 +169,9 @@ def main() -> None:
         "file_count": len(packed),
         "total_bytes": sum(size for _, _, size in packed),
         "answer_blind": not any(is_feedback_assisted(relative) for _, relative, _ in packed),
-        "feedback_assisted_note": "files marked feedback_assisted are Condition C output, selected by B's private "
-                                  "verdicts (only B-No questions are repaired); they hold no answer key or scoring",
+        "feedback_assisted_note": "files marked feedback_assisted are Condition C or H output, selected by private "
+                                  "Yes/No verdicts (only parent-No questions are repaired); they hold no answer key "
+                                  "or scoring",
         "files": [{"path": relative, "bytes": size, "sha256": sha256(path),
                    **({"feedback_assisted": True} if is_feedback_assisted(relative) else {})}
                   for path, relative, size in packed],

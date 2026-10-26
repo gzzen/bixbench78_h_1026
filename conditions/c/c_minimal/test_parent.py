@@ -150,13 +150,24 @@ class ParentTests(unittest.TestCase):
 
 
 class GraderIsolationTests(unittest.TestCase):
+    # Condition H's in-run Yes/No runs the sibling grader as a separate process on frozen
+    # snapshots; that one module may name it, but never the answer key or an evaluator.
+    GRADER_SUBPROCESS = "conditions/h/core/feedback.py"
+
     def test_generation_code_never_references_the_grader_or_answer_key(self):
         root = Path(__file__).resolve().parents[3]
         needles = ("bixbench78_grader", "answers_78", "yes_no_open_evaluator")
-        offenders = [str(path.relative_to(root)) for top in ("conditions", "common")
-                     for path in (root / top).rglob("*.py") if not path.name.startswith("test_")
-                     and any(needle in path.read_text(encoding="utf-8") for needle in needles)]
+        offenders = []
+        for top in ("conditions", "common"):
+            for path in (root / top).rglob("*.py"):
+                relative = str(path.relative_to(root))
+                if path.name.startswith("test_"):
+                    continue
+                allowed = needles[1:] if relative == self.GRADER_SUBPROCESS else needles
+                if any(needle in path.read_text(encoding="utf-8") for needle in allowed):
+                    offenders.append(relative)
         self.assertEqual(offenders, [])
+        self.assertIn("bixbench78_grader", (root / self.GRADER_SUBPROCESS).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
